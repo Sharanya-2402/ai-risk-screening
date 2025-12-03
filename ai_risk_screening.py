@@ -1,6 +1,7 @@
 
 import streamlit as st
 import pandas as pd
+import json
 
 # ---------- Page setup ----------
 st.set_page_config(page_title="AI Risk & Criticality Screening", layout="wide")
@@ -8,13 +9,15 @@ st.markdown("""
 <style>
 .section-title {font-size:1.4rem; font-weight:700; margin-top:1.2rem; padding-bottom:0.3rem; border-bottom:1px solid #ddd;}
 .small-note {font-size:0.9rem; color:#666;}
-.help {color:#555; font-style:italic;}
+.risk-high {background:#ffe5e5; padding:0.6rem; border:1px solid #ffaaaa; border-radius:6px;}
+.risk-medium {background:#fff5e0; padding:0.6rem; border:1px solid #ffd699; border-radius:6px;}
+.risk-low {background:#e9ffe9; padding:0.6rem; border:1px solid #bdf0bd; border-radius:6px;}
 </style>
 """, unsafe_allow_html=True)
 
 st.title("AI Use Case Risk & Criticality Screening Questionnaire")
 
-# ---------- Helper ----------
+# ---------- Helpers ----------
 def enrich_with_other(selected_list, other_text):
     """
     If 'Other' is selected and user provided comma-separated values in other_text,
@@ -27,15 +30,12 @@ def enrich_with_other(selected_list, other_text):
             selected_list.extend(extras)
     return selected_list
 
-def score_mapping_yes_no(yes_value: str, score_if_yes=2, score_if_no=4):
-    return score_if_yes if yes_value == "Yes" else score_if_no
-
 def max_source_risk(sources):
     # Internal=2, External=3, Third-party=4 (max of selected)
     mapping = {"Internal": 2, "External": 3, "Third-party": 4}
     if not sources:
         return 3  # neutral if none provided
-    return max([mapping.get(s, 3) for s in sources])
+    return max([mapping.get(s, 3) for s in sources if s in mapping])
 
 def regulatory_base_risk(regs):
     # Regulated (GDPR, HIPAA, RBI) -> 4; Only Other -> 3; None -> 2
@@ -56,7 +56,6 @@ def categorize_total_risk(total):
         return "Low"
 
 def decision_matrix(risk_level, criticality):
-    # From your document’s matrix
     if risk_level == "Low" and criticality in ["Low", "Medium", "High"]:
         return "Approve"
     if risk_level == "Medium" and criticality in ["Low", "Medium"]:
@@ -67,8 +66,34 @@ def decision_matrix(risk_level, criticality):
         return "Escalate for detailed review"
     if risk_level == "High" and criticality in ["Low", "Medium"]:
         return "Reject or redesign"
-    # Fallback
     return "Review"
+
+def performance_metrics_risk(metrics):
+    """
+    Heuristic:
+    - No metrics -> 4.5 (high risk)
+    - Only 'Accuracy' -> 3.5 (moderate-high)
+    - Includes Precision/Recall/F1 (any) -> 2 (good)
+    - If 'Other' only (without standard metrics) -> 3
+    """
+    if not metrics:
+        return 4.5
+    std = {"Accuracy", "Precision", "Recall", "F1 Score"}
+    has_std = any(m in std for m in metrics)
+    only_accuracy = metrics == ["Accuracy"]
+    if only_accuracy:
+        return 3.5
+    if has_std:
+        return 2.0
+    return 3.0
+
+def add_risk(risks, category, description, severity, recommendation):
+    risks.append({
+        "Category": category,
+        "Risk": description,
+        "Severity": severity,
+        "Recommended Control": recommendation
+    })
 
 # ---------- Section 1: Use Case Overview ----------
 st.markdown('<div class="section-title">Section 1: Use Case Overview</div>', unsafe_allow_html=True)
@@ -83,25 +108,19 @@ business_objective = st.text_area("Business Objective")
 # Multi-select with 'Other' + free-text
 model_types_base = ["Predictive", "Generative", "NLP", "Classification", "Other"]
 model_types_sel = st.multiselect("AI Model Types (select one or more)", model_types_base)
-model_types_other = ""
-if "Other" in model_types_sel:
-    model_types_other = st.text_input("Specify other AI Model Types (comma-separated)")
+model_types_other = st.text_input("If 'Other', specify AI Model Types (comma-separated)") if "Other" in model_types_sel else ""
 model_types = enrich_with_other(model_types_sel, model_types_other)
 
 deployment_envs_base = ["On-prem", "Cloud", "Hybrid", "Other"]
 deployment_envs_sel = st.multiselect("Deployment Environment (select one or more)", deployment_envs_base)
-deployment_envs_other = ""
-if "Other" in deployment_envs_sel:
-    deployment_envs_other = st.text_input("Specify other Deployment Environments (comma-separated)")
+deployment_envs_other = st.text_input("If 'Other', specify Deployment Environments (comma-separated)") if "Other" in deployment_envs_sel else ""
 deployment_envs = enrich_with_other(deployment_envs_sel, deployment_envs_other)
 
 # ---------- Section 2: Data Risk Assessment ----------
 st.markdown('<div class="section-title">Section 2: Data Risk Assessment</div>', unsafe_allow_html=True)
 data_sources_base = ["Internal", "External", "Third-party", "Other"]
 data_sources_sel = st.multiselect("Data Sources (select one or more)", data_sources_base)
-data_sources_other = ""
-if "Other" in data_sources_sel:
-    data_sources_other = st.text_input("Specify other Data Sources (comma-separated)")
+data_sources_other = st.text_input("If 'Other', specify Data Sources (comma-separated)") if "Other" in data_sources_sel else ""
 data_sources = enrich_with_other(data_sources_sel, data_sources_other)
 
 data_sensitivity = st.radio("Data Sensitivity (PII/PHI/Financial/Confidential) present?", ["Yes", "No"], horizontal=True)
@@ -112,7 +131,13 @@ data_encryption = st.radio("Encryption & retention policies applied?", ["Yes", "
 st.markdown('<div class="section-title">Section 3: Model Risk Assessment</div>', unsafe_allow_html=True)
 model_explainable = st.radio("Model transparency (explainable)?", ["Yes", "No"], horizontal=True)
 bias_fairness = st.radio("Bias & fairness checks implemented?", ["Yes", "No"], horizontal=True)
-performance_metric = st.selectbox("Primary performance metric tracked", ["Accuracy", "Precision", "Recall", "F1 Score"])
+
+# ✅ PERFORMANCE METRIC: multi-select + Other free-text
+perf_options = ["Accuracy", "Precision", "Recall", "F1 Score", "Other"]
+performance_metrics_sel = st.multiselect("Performance Metrics (select one or more)", perf_options)
+performance_metrics_other = st.text_input("If 'Other', specify Performance Metrics (comma-separated)") if "Other" in performance_metrics_sel else ""
+performance_metrics = enrich_with_other(performance_metrics_sel, performance_metrics_other)
+
 model_drift = st.radio("Model drift monitoring in place?", ["Yes", "No"], horizontal=True)
 
 # ---------- Section 4: Operational Risk ----------
@@ -125,9 +150,7 @@ fallback = st.radio("Fallback mechanism / human-in-the-loop available?", ["Yes",
 st.markdown('<div class="section-title">Section 5: Compliance & Regulatory</div>', unsafe_allow_html=True)
 regs_base = ["GDPR", "HIPAA", "RBI", "Other"]
 regs_sel = st.multiselect("Applicable regulations (select one or more)", regs_base)
-regs_other = ""
-if "Other" in regs_sel:
-    regs_other = st.text_input("Specify other applicable regulations (comma-separated)")
+regs_other = st.text_input("If 'Other', specify applicable regulations (comma-separated)") if "Other" in regs_sel else ""
 regs = enrich_with_other(regs_sel, regs_other)
 
 consent = st.radio("Consent management present?", ["Yes", "No"], horizontal=True)
@@ -141,9 +164,9 @@ privacy_by_design = st.radio("Privacy-by-design embedded?", ["Yes", "No"], horiz
 
 # ---------- Section 7: Risk & Criticality Scoring ----------
 st.markdown('<div class="section-title">Section 7: Risk & Criticality Scoring</div>', unsafe_allow_html=True)
-st.markdown('<p class="small-note">Weights are 20% for each dimension (Data, Model, Operational, Regulatory, Security).</p>', unsafe_allow_html=True)
+st.markdown('<p class="small-note">Weights are 20% for each dimension (Data, Model, Operational, Regulatory, Security). 1=low risk, 5=high risk.</p>', unsafe_allow_html=True)
 
-# Compute dimension scores (1=best/lowest risk, 5=worst/highest risk) using simple heuristics aligned with your questionnaire
+# Scores per dimension
 # Data Risk
 data_risk_components = [
     5 if data_sensitivity == "Yes" else 2,
@@ -157,6 +180,7 @@ data_risk_score = round(sum(data_risk_components) / len(data_risk_components), 2
 model_risk_components = [
     4 if model_explainable == "No" else 2,
     4 if bias_fairness == "No" else 2,
+    performance_metrics_risk(performance_metrics),
     4 if model_drift == "No" else 2
 ]
 model_risk_score = round(sum(model_risk_components) / len(model_risk_components), 2)
@@ -172,7 +196,7 @@ operational_risk_components = [
 operational_risk_score = round(sum(operational_risk_components) / len(operational_risk_components), 2)
 
 # Regulatory Risk
-reg_base = regulatory_base_risk([r for r in regs if r in ["GDPR", "HIPAA", "RBI"] or r not in ["GDPR", "HIPAA", "RBI"]])
+reg_base = regulatory_base_risk(regs)
 regulatory_risk_components = [
     reg_base,
     4 if consent == "No" else 2,
@@ -188,27 +212,71 @@ security_risk_components = [
 ]
 security_risk_score = round(sum(security_risk_components) / len(security_risk_components), 2)
 
-# Weighted total
-weights = {
-    "Data Risk": 0.20,
-    "Model Risk": 0.20,
-    "Operational Risk": 0.20,
-    "Regulatory Risk": 0.20,
-    "Security Risk": 0.20
-}
+# Weighted total (1-5)
+weights = { "Data": 0.20, "Model": 0.20, "Operational": 0.20, "Regulatory": 0.20, "Security": 0.20 }
 total_weighted = round(
-    data_risk_score * weights["Data Risk"]
-    + model_risk_score * weights["Model Risk"]
-    + operational_risk_score * weights["Operational Risk"]
-    + regulatory_risk_score * weights["Regulatory Risk"]
-    + security_risk_score * weights["Security Risk"],
+    data_risk_score * weights["Data"]
+    + model_risk_score * weights["Model"]
+    + operational_risk_score * weights["Operational"]
+    + regulatory_risk_score * weights["Regulatory"]
+    + security_risk_score * weights["Security"],
     2
 )
 risk_level = categorize_total_risk(total_weighted)
 recommendation = decision_matrix(risk_level, criticality)
 
+# ---------- Identified Risks (rule-based from answers) ----------
+identified_risks = []
+if data_sensitivity == "Yes":
+    add_risk(identified_risks, "Data", "Sensitive data present (PII/PHI/Financial/Confidential).", "High",
+             "Apply DLP, minimize data, lawful basis, assess cross-border transfers.")
+if "External" in data_sources or "Third-party" in data_sources:
+    add_risk(identified_risks, "Data", "External/Third-party data increases contractual/compliance risk.", "Medium",
+             "Validate licenses/DPAs, provenance checks, intake approvals.")
+if data_bias_checks == "No":
+    add_risk(identified_risks, "Data/Model", "Bias & quality checks missing.", "High",
+             "Run bias detection, sampling review, fairness metrics and mitigations.")
+if data_encryption == "No":
+    add_risk(identified_risks, "Security/Privacy", "Encryption/retention controls missing.", "High",
+             "Enable encryption at-rest/in-transit, retention policies, key management.")
+if model_explainable == "No":
+    add_risk(identified_risks, "Model", "Lack of explainability.", "Medium",
+             "Adopt XAI techniques, model cards, decision logs.")
+if bias_fairness == "No":
+    add_risk(identified_risks, "Model", "Fairness checks not implemented.", "High",
+             "Define fairness criteria, monitor disparate impact, add governance gates.")
+pm_risk = performance_metrics_risk(performance_metrics)
+if pm_risk >= 3.0:
+    add_risk(identified_risks, "Model", "Insufficient performance metrics (e.g., only Accuracy).", "Medium",
+             "Track Precision/Recall/F1; align metrics to use-case harm.")
+if model_drift == "No":
+    add_risk(identified_risks, "Model/Ops", "No drift monitoring.", "Medium",
+             "Add data/model drift alerts, retraining schedule, shadow evaluation.")
+if dependency == "Fully Automated" and criticality == "High":
+    add_risk(identified_risks, "Operational", "High criticality with fully automated decisions.", "High",
+             "Add human-in-the-loop, approvals, rollback plan.")
+if fallback == "No":
+    add_risk(identified_risks, "Operational", "No fallback/override.", "High",
+             "Define manual override, contingency plan, RTO/RPO.")
+if consent == "No":
+    add_risk(identified_risks, "Compliance", "Consent management missing.", "High",
+             "Capture/manage consent, notice/opt-out, DPIA where applicable.")
+if auditability == "No":
+    add_risk(identified_risks, "Compliance", "Limited auditability/traceability.", "Medium",
+             "Implement decision logs, model/version lineage, reproducibility.")
+if access_controls == "No":
+    add_risk(identified_risks, "Security", "RBAC missing.", "High",
+             "Implement least privilege, periodic access reviews.")
+if cyber_measures == "No":
+    add_risk(identified_risks, "Security", "Cybersecurity measures incomplete.", "High",
+             "Apply vulnerability management, monitoring, incident response.")
+if privacy_by_design == "No":
+    add_risk(identified_risks, "Privacy", "Privacy-by-design not embedded.", "Medium",
+             "Data minimization, purpose limitation, privacy impact assessment.")
+
 # ---------- Submit & Results ----------
 if st.button("Submit & Analyze"):
+    # Scoring table
     summary_rows = [
         {"Dimension": "Data Risk", "Weight": "20%", "Score (1-5)": data_risk_score},
         {"Dimension": "Model Risk", "Weight": "20%", "Score (1-5)": model_risk_score},
@@ -228,6 +296,21 @@ if st.button("Submit & Analyze"):
         st.metric("Recommended Decision", recommendation)
 
     st.divider()
+    st.subheader("Identified Risks")
+    if identified_risks:
+        # Display risks with color by severity
+        for r in identified_risks:
+            css_class = "risk-high" if r["Severity"] == "High" else "risk-medium" if r["Severity"] == "Medium" else "risk-low"
+            st.markdown(
+                f'<div class="{css_class}"><b>{r["Category"]}</b>: {r["Risk"]} '
+                f'<br/><i>Severity:</i> {r["Severity"]} '
+                f'<br/><i>Recommendation:</i> {r["Recommended Control"]}</div>',
+                unsafe_allow_html=True
+            )
+    else:
+        st.success("No major risks identified by current heuristics.")
+
+    st.divider()
     st.subheader("Submission Summary")
     st.write("**Use Case Name:**", use_case_name or "-")
     st.write("**Description:**", use_case_desc or "-")
@@ -235,16 +318,108 @@ if st.button("Submit & Analyze"):
     st.write("**AI Model Types:**", ", ".join(model_types) if model_types else "-")
     st.write("**Deployment Environments:**", ", ".join(deployment_envs) if deployment_envs else "-")
     st.write("**Data Sources:**", ", ".join(data_sources) if data_sources else "-")
+    st.write("**Performance Metrics:**", ", ".join(performance_metrics) if performance_metrics else "-")
     st.write("**Applicable Regulations:**", ", ".join(regs) if regs else "-")
 
-    st.info("For demo, email/workflow routing is not enabled here. You can add Power Automate or SMTP later.")
+    # ---------- Routing (Power Automate webhook or SMTP via Secrets) ----------
+    payload = {
+        "use_case_name": use_case_name,
+        "use_case_desc": use_case_desc,
+        "business_objective": business_objective,
+        "model_types": model_types,
+        "deployment_envs": deployment_envs,
+        "data_sources": data_sources,
+        "data_sensitivity": data_sensitivity,
+        "data_bias_checks": data_bias_checks,
+        "data_encryption": data_encryption,
+        "model_explainable": model_explainable,
+        "bias_fairness": bias_fairness,
+        "performance_metrics": performance_metrics,
+        "model_drift": model_drift,
+        "criticality": criticality,
+        "dependency": dependency,
+        "fallback": fallback,
+        "regs": regs,
+        "consent": consent,
+        "auditability": auditability,
+        "access_controls": access_controls,
+        "cyber_measures": cyber_measures,
+        "privacy_by_design": privacy_by_design,
+        "scores": {
+            "data_risk": data_risk_score,
+            "model_risk": model_risk_score,
+            "operational_risk": operational_risk_score,
+            "regulatory_risk": regulatory_risk_score,
+            "security_risk": security_risk_score,
+            "total_weighted": total_weighted,
+            "risk_level": risk_level,
+            "recommendation": recommendation
+        },
+        "identified_risks": identified_risks
+    }
 
-# ---------- Optional: Helper sidebar ----------
-with st.sidebar:
-    st.caption("Tips")
-    st.markdown("""
-- If you select **Other**, please type one or more values (comma-separated).
-- Scores are heuristic and for demonstration. Replace with your organization's policy when ready.
-- Use the **Submit & Analyze** button to compute risk and see the decision recommendation.
-    """)
+    routed = False
+    # Preferred: Power Automate webhook
+    if "WEBHOOK_URL" in st.secrets:
+        try:
+            import requests
+            resp = requests.post(st.secrets["WEBHOOK_URL"], json=payload, timeout=10)
+            if 200 <= resp.status_code < 300:
+                st.info("Sent to Risk & Compliance workflow via Power Automate webhook.")
+                routed = True
+            else:
+                st.warning(f"Webhook responded with status {resp.status_code}.")
+        except Exception as e:
+            st.warning(f"Webhook error: {e}")
 
+    # Fallback: SMTP (requires M365 SMTP + credentials in secrets)
+    if not routed and "EMAIL" in st.secrets:
+        try:
+            import smtplib, ssl
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+
+            email_cfg = st.secrets["EMAIL"]
+            smtp_server = email_cfg.get("SMTP_SERVER", "smtp.office365.com")
+            smtp_port = int(email_cfg.get("SMTP_PORT", 587))
+            username = email_cfg["USERNAME"]
+            password = email_cfg["PASSWORD"]
+            to_list = email_cfg.get("TO", [])
+
+            html_body = f"""
+            <h3>AI Risk Screening Submission</h3>
+            <p><b>Use Case:</b> {use_case_name}</p>
+            <p><b>Risk Level:</b> {risk_level} | <b>Total Weighted:</b> {total_weighted}</p>
+            <p><b>Recommendation:</b> {recommendation}</p>
+            <h4>Identified Risks</h4>
+            <ul>
+            {''.join([f"<li><b>{r['Category']}</b> – {r['Risk']} (Severity: {r['Severity']}). <i>Control:</i> {r['Recommended Control']}</li>" for r in identified_risks])}
+            </ul>
+            <h4>Scores</h4>
+            <ul>
+                <li>Data: {data_risk_score}</li>
+                <li>Model: {model_risk_score}</li>
+                <li>Operational: {operational_risk_score}</li>
+                <li>Regulatory: {regulatory_risk_score}</li>
+                <li>Security: {security_risk_score}</li>
+            </ul>
+            """
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"AI Risk Screening: {use_case_name} | {risk_level}"
+            msg["From"] = username
+            msg["To"] = ", ".join(to_list)
+            msg.attach(MIMEText(html_body, "html"))
+
+            context = ssl.create_default_context()
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
+                server.starttls(context=context)
+                server.login(username, password)
+                server.sendmail(username, to_list, msg.as_string())
+            st.info("Email sent to Risk & Compliance / Legal / AI Committee.")
+            routed = True
+        except Exception as e:
+            st.warning(f"SMTP error: {e}")
+
+    if not routed:
+        st.info("Routing simulated. Configure WEBHOOK_URL (Power Automate) or EMAIL secrets to enable live routing.")

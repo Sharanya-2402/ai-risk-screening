@@ -330,7 +330,7 @@ if st.button("Submit & Analyze"):
             "recommendation": recommendation
         }
     }
-
+st.write(payload)
     # 1) Show scoring
     st.subheader("Risk Scoring Breakdown")
     summary_rows = [

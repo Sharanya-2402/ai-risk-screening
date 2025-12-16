@@ -142,7 +142,7 @@ with c2:
     use_case_desc = st.text_area("Use Case Description")
 business_objective = st.text_area("Business Objective")
 
-model_types_base = ["Predictive", "Generative", "NLP", "Classification", "Other"]
+model_types_base = ["Predictive", "Generative", "Natural Language Processing", "Classification", "Other"]  # expanded "NLP"
 model_types_sel = st.multiselect("AI Model Types (select one or more)", model_types_base)
 model_types_other = st.text_input("If 'Other', specify AI Model Types (comma-separated)") if "Other" in model_types_sel else ""
 model_types = enrich_with_other(model_types_sel, model_types_other)
@@ -159,9 +159,9 @@ data_sources_sel = st.multiselect("Data Sources (select one or more)", data_sour
 data_sources_other = st.text_input("If 'Other', specify Data Sources (comma-separated)") if "Other" in data_sources_sel else ""
 data_sources = enrich_with_other(data_sources_sel, data_sources_other)
 
-data_sensitivity = st.radio("Data Sensitivity (PII/PHI/Financial/Confidential) present?", ["Yes", "No"], horizontal=True)
-data_bias_checks = st.radio("Bias/Quality checks implemented?", ["Yes", "No"], horizontal=True)
-data_encryption = st.radio("Encryption & retention policies applied?", ["Yes", "No"], horizontal=True)
+data_sensitivity = st.radio("Data Sensitivity (Personally Identifiable Information / Protected Health Information / Financial / Confidential) present?", ["Yes", "No"], horizontal=True)
+data_bias_checks = st.radio("Bias and Quality checks implemented?", ["Yes", "No"], horizontal=True)
+data_encryption = st.radio("Encryption and retention policies applied?", ["Yes", "No"], horizontal=True)
 
 # ---------- Section 3: Model Risk Assessment ----------
 st.markdown('<div class="section-title">Section 3: Model Risk Assessment</div>', unsafe_allow_html=True)
@@ -288,7 +288,7 @@ if st.button("Submit & Analyze"):
 
     user_input_raw = {k: v for k, v in payload.items() if k not in {"scores", "identified_risks"}}
 
-    # Expand free-text inside outputs
+    # Expand free-text inside outputs (for display/download only)
     user_input_for_output = {}
     for k, v in user_input_raw.items():
         if isinstance(v, str):
@@ -353,7 +353,7 @@ if st.button("Submit & Analyze"):
             val = ", ".join(v) if isinstance(v, list) else v
             rows.append({"Field": k, "Value": val})
         df = pd.DataFrame(rows)
-        bio = BytesIO()
+        bio = BytesIO        bio = BytesIO()
         with pd.ExcelWriter(bio, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="User Input")
         return bio.getvalue()
@@ -365,7 +365,7 @@ if st.button("Submit & Analyze"):
     json_bytes = json.dumps(expanded_user_input, indent=2).encode("utf-8")
 
     # Download buttons
-    c1    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.download_button(
             "Download DOCX",

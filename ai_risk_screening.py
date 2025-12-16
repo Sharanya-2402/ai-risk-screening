@@ -1,24 +1,21 @@
 
+# ai_risk_screening.py
 import streamlit as st
 import pandas as pd
 import json
 
+# ---------- Page config & simple styling ----------
 st.set_page_config(page_title="AI Risk & Criticality Screening", layout="wide")
-
-# ----- Styling -----
 st.markdown("""
 <style>
-.section-title {font-size:1.4rem; font-weight:700; margin-top:1.2rem; padding-bottom:0.3rem; border-bottom:1px solid #ddd;}
+.section-title {font-size:1.25rem; font-weight:700; margin-top:1.0rem; padding-bottom:0.3rem; border-bottom:1px solid #ddd;}
 .small-note {font-size:0.9rem; color:#666;}
-.risk-high   {background:#ffe5e5; padding:0.6rem; border:1px solid #ffaaaa; border-radius:6px;}
-.risk-medium {background:#fff5e0; padding:0.6rem; border:1px solid #ffd699; border-radius:6px;}
-.risk-low    {background:#e9ffe9; padding:0.6rem; border:1px solid #bdf0bd; border-radius:6px;}
 </style>
 """, unsafe_allow_html=True)
 
 st.title("AI Use Case Risk & Criticality Screening Questionnaire")
 
-# ----- Helpers -----
+# ---------- Helpers: core logic ----------
 def enrich_with_other(selected_list, other_text):
     if "Other" in selected_list:
         selected_list = [s for s in selected_list if s != "Other"]
@@ -63,10 +60,77 @@ def performance_metrics_risk(metrics):
     if has_std: return 2.0
     return 3.0
 
-def add_risk(risks, category, description, severity, recommendation):
-    risks.append({"Category": category, "Risk": description, "Severity": severity, "Recommended Control": recommendation})
+# ---------- Abbreviation expansion (labels + values + free-text) ----------
+ABBREV_MAP_VALUES = {
+    # Common values appearing in outputs
+    "NLP": "Natural Language Processing",
+    "CSAT": "Customer Satisfaction",
+    "RBAC": "Role-Based Access Control",
+    "API": "Application Programming Interface",
+}
 
-# ----- Section 1: Use Case Overview -----
+ABBREV_MAP_LABELS = {
+    # Output label expansions (used in JSON & files)
+    "Use Case Desc": "Use Case Description",
+    "Deployment Envs": "Deployment Environments",
+    "Regs": "Applicable Regulations",
+    "Bias Fairness": "Bias and Fairness Checks",
+    "Privacy By Design": "Privacy by Design",
+    "Cyber Measures": "Cybersecurity Measures",
+}
+
+# Free-text expansion patterns (applied inside Description/Business Objective, etc.)
+TEXT_ABBREV_PATTERNS = [
+    ("\\bCSAT\\b", "Customer Satisfaction"),
+    ("\\bNLP\\b", "Natural Language Processing"),
+    ("\\bRBAC\\b", "Role-Based Access Control"),
+    ("\\bAPI\\b", "Application Programming Interface"),
+    ("\\bDLP\\b", "Data Loss Prevention"),
+    ("\\bDPIA\\b", "Data Protection Impact Assessment"),
+    ("\\bMFA\\b", "Multi-Factor Authentication"),
+    ("\\bIR\\b", "Incident Response"),
+    ("\\bEU AI Act\\b", "European Union Artificial Intelligence Act"),
+    ("\\bPII\\b", "Personally Identifiable Information"),
+    ("\\bPHI\\b", "Protected Health Information"),
+]
+
+import re
+def expand_text(s: str) -> str:
+    if not isinstance(s, str):
+        return s
+    expanded = s
+    for pat, repl in TEXT_ABBREV_PATTERNS:
+        expanded = re.sub(pat, repl, expanded)
+    return expanded
+
+def expand_label(label: str) -> str:
+    return ABBREV_MAP_LABELS.get(label, label)
+
+def expand_value(val):
+    if isinstance(val, str):
+        # First expand exact values, then free-text inside
+        v = ABBREV_MAP_VALUES.get(val, val)
+        return expand_text(v)
+    if isinstance(val, list):
+        return [expand_text(ABBREV_MAP_VALUES.get(v, v)) for v in val]
+    return val
+
+def titleize_key(k: str) -> str:
+    # Convert payload keys like "use_case_desc" to "Use Case Description"
+    pretty = k.replace("_", " ").strip().title()
+    # Align with known label expansions (e.g., Privacy By Design -> Privacy by Design)
+    pretty = expand_label(pretty)
+    return pretty
+
+def expand_dict_keys_values(d: dict) -> dict:
+    """Return a copy with expanded keys (labels) and expanded values."""
+    out = {}
+    for k, v in d.items():
+        key_expanded = titleize_key(k)
+        out[key_expanded] = expand_value(v)
+    return out
+
+# ---------- Section 1: Use Case Overview ----------
 st.markdown('<div class="section-title">Section 1: Use Case Overview</div>', unsafe_allow_html=True)
 c1, c2 = st.columns(2)
 with c1:
@@ -81,11 +145,11 @@ model_types_other = st.text_input("If 'Other', specify AI Model Types (comma-sep
 model_types = enrich_with_other(model_types_sel, model_types_other)
 
 deployment_envs_base = ["On-prem", "Cloud", "Hybrid", "Other"]
-deployment_envs_sel = st.multiselect("Deployment Environment (select one or more)", deployment_envs_base)
+deployment_envs_sel = st.multiselect("Deployment Environments (select one or more)", deployment_envs_base)
 deployment_envs_other = st.text_input("If 'Other', specify Deployment Environments (comma-separated)") if "Other" in deployment_envs_sel else ""
 deployment_envs = enrich_with_other(deployment_envs_sel, deployment_envs_other)
 
-# ----- Section 2: Data Risk Assessment -----
+# ---------- Section 2: Data Risk Assessment ----------
 st.markdown('<div class="section-title">Section 2: Data Risk Assessment</div>', unsafe_allow_html=True)
 data_sources_base = ["Internal", "External", "Third-party", "Other"]
 data_sources_sel = st.multiselect("Data Sources (select one or more)", data_sources_base)
@@ -96,42 +160,42 @@ data_sensitivity = st.radio("Data Sensitivity (PII/PHI/Financial/Confidential) p
 data_bias_checks = st.radio("Bias/Quality checks implemented?", ["Yes", "No"], horizontal=True)
 data_encryption = st.radio("Encryption & retention policies applied?", ["Yes", "No"], horizontal=True)
 
-# ----- Section 3: Model Risk Assessment -----
+# ---------- Section 3: Model Risk Assessment ----------
 st.markdown('<div class="section-title">Section 3: Model Risk Assessment</div>', unsafe_allow_html=True)
 model_explainable = st.radio("Model transparency (explainable)?", ["Yes", "No"], horizontal=True)
-bias_fairness = st.radio("Bias & fairness checks implemented?", ["Yes", "No"], horizontal=True)
+bias_fairness = st.radio("Bias and Fairness Checks implemented?", ["Yes", "No"], horizontal=True)
 perf_options = ["Accuracy", "Precision", "Recall", "F1 Score", "Other"]
 performance_metrics_sel = st.multiselect("Performance Metrics (select one or more)", perf_options)
 performance_metrics_other = st.text_input("If 'Other', specify Performance Metrics (comma-separated)") if "Other" in performance_metrics_sel else ""
 performance_metrics = enrich_with_other(performance_metrics_sel, performance_metrics_other)
 model_drift = st.radio("Model drift monitoring in place?", ["Yes", "No"], horizontal=True)
 
-# ----- Section 4: Operational Risk -----
+# ---------- Section 4: Operational Risk ----------
 st.markdown('<div class="section-title">Section 4: Operational Risk</div>', unsafe_allow_html=True)
 criticality = st.selectbox("Criticality of impacted business process", ["Low", "Medium", "High"])
 dependency = st.selectbox("Dependency on AI output", ["Advisory", "Fully Automated"])
 fallback = st.radio("Fallback mechanism / human-in-the-loop available?", ["Yes", "No"], horizontal=True)
 
-# ----- Section 5: Compliance & Regulatory -----
+# ---------- Section 5: Compliance & Regulatory ----------
 st.markdown('<div class="section-title">Section 5: Compliance & Regulatory</div>', unsafe_allow_html=True)
 regs_base = ["GDPR", "HIPAA", "RBI", "Other"]
-regs_sel = st.multiselect("Applicable regulations (select one or more)", regs_base)
+regs_sel = st.multiselect("Applicable Regulations (select one or more)", regs_base)
 regs_other = st.text_input("If 'Other', specify applicable regulations (comma-separated)") if "Other" in regs_sel else ""
 regs = enrich_with_other(regs_sel, regs_other)
 consent = st.radio("Consent management present?", ["Yes", "No"], horizontal=True)
 auditability = st.radio("Decisions traceable/auditable?", ["Yes", "No"], horizontal=True)
 
-# ----- Section 6: Security & Privacy -----
+# ---------- Section 6: Security & Privacy ----------
 st.markdown('<div class="section-title">Section 6: Security & Privacy</div>', unsafe_allow_html=True)
 access_controls = st.radio("Role-based access controls?", ["Yes", "No"], horizontal=True)
 cyber_measures = st.radio("Cybersecurity measures implemented?", ["Yes", "No"], horizontal=True)
-privacy_by_design = st.radio("Privacy-by-design embedded?", ["Yes", "No"], horizontal=True)
+privacy_by_design = st.radio("Privacy by Design embedded?", ["Yes", "No"], horizontal=True)
 
-# ----- Section 7: Risk & Criticality Scoring (internal only; no display) -----
+# ---------- Section 7: Risk & Criticality Scoring (internal only) ----------
 st.markdown('<div class="section-title">Section 7: Risk & Criticality Scoring</div>', unsafe_allow_html=True)
 st.markdown('<p class="small-note">Weights are 20% for Data, Model, Operational, Regulatory, Security. 1=low risk, 5=high risk.</p>', unsafe_allow_html=True)
 
-# Scores per dimension (computed but not shown)
+# Scores per dimension (computed but not displayed in the new outputs)
 data_risk_components = [
     5 if data_sensitivity == "Yes" else 2,
     4 if data_bias_checks == "No" else 2,
@@ -183,10 +247,9 @@ total_weighted = round(
 risk_level = categorize_total_risk(total_weighted)
 recommendation = decision_matrix(risk_level, criticality)
 
-# ----- Submit & Results (no webhook/email/AI risk generation; only downloads) -----
+# ---------- Submit & Results (expanded outputs + downloads; no webhook/email/AI calls) ----------
 if st.button("Submit & Analyze"):
-
-    # Build payload (same fields you already collect)
+    # Build payload (unchanged internal keys)
     payload = {
         "use_case_name": use_case_name,
         "use_case_desc": use_case_desc,
@@ -210,7 +273,7 @@ if st.button("Submit & Analyze"):
         "access_controls": access_controls,
         "cyber_measures": cyber_measures,
         "privacy_by_design": privacy_by_design,
-        # Keep scores internally if you want (not exported)
+        # Keep internal scores (not exported/showed)
         "scores": {
             "data_risk": data_risk_score,
             "model_risk": model_risk_score,
@@ -224,30 +287,41 @@ if st.button("Submit & Analyze"):
     }
 
     # Keep only raw user answers (drop scoring & risks)
-    user_input = {k: v for k, v in payload.items() if k not in {"scores", "identified_risks"}}
+    user_input_raw = {k: v for k, v in payload.items() if k not in {"scores", "identified_risks"}}
+
+    # Apply abbreviation expansions to free-text fields as well
+    # (non-destructive: only for outputs)
+    user_input_for_output = {}
+    for k, v in user_input_raw.items():
+        if isinstance(v, str):
+            user_input_for_output[k] = expand_text(v)
+        elif isinstance(v, list):
+            user_input_for_output[k] = [expand_text(x) for x in v]
+        else:
+            user_input_for_output[k] = v
+
+    # Expand keys and values for display/download (no short forms)
+    expanded_user_input = expand_dict_keys_values(user_input_for_output)
 
     st.success("Submission captured. Download your responses below (DOCX / PDF / XLSX / JSON).")
     st.subheader("User Input (for Agent)")
-    st.json(user_input)
+    st.json(expanded_user_input)
 
     # ---------- File builders (DOCX, PDF, XLSX, JSON) ----------
     from io import BytesIO
-    import pandas as pd
 
-    # 1) DOCX
     def build_docx(data: dict) -> bytes:
         from docx import Document
         doc = Document()
         doc.add_heading("AI Use Case Risk & Criticality – User Submission", level=1)
         for k, v in data.items():
             p = doc.add_paragraph()
-            p.add_run(f"{k.replace('_',' ').title()}: ").bold = True
+            p.add_run(f"{k}: ").bold = True
             p.add_run(", ".join(v) if isinstance(v, list) else str(v))
         bio = BytesIO()
         doc.save(bio)
         return bio.getvalue()
 
-    # 2) PDF (simple text layout)
     def build_pdf(data: dict) -> bytes:
         from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
@@ -259,13 +333,12 @@ if st.button("Submit & Analyze"):
         story.append(Spacer(1, 0.3*cm))
         for k, v in data.items():
             val = ", ".join(v) if isinstance(v, list) else str(v)
-            story.append(Paragraph(f"<b>{k.replace('_',' ').title()}:</b> {val}", styles["BodyText"]))
+            story.append(Paragraph(f"<b>{k}:</b>            story.append(Paragraph(f"<b>{k}:</b> {val}", styles["BodyText"]))
             story.append(Spacer(1, 0.2*cm))
         bio = BytesIO()
         SimpleDocTemplate(bio, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm).build(story)
         return bio.getvalue()
 
-    # 3) XLSX
     def build_xlsx(data: dict) -> bytes:
         rows = []
         for k, v in data.items():
@@ -277,11 +350,11 @@ if st.button("Submit & Analyze"):
             df.to_excel(writer, index=False, sheet_name="User Input")
         return bio.getvalue()
 
-    # Build files
-    docx_bytes = build_docx(user_input)
-    pdf_bytes  = build_pdf(user_input)
-    xlsx_bytes = build_xlsx(user_input)
-    json_bytes = json.dumps(user_input, indent=2).encode("utf-8")
+    # Build files from expanded output dict
+    docx_bytes = build_docx(expanded_user_input)
+    pdf_bytes  = build_pdf(expanded_user_input)
+    xlsx_bytes = build_xlsx(expanded_user_input)
+    json_bytes = json.dumps(expanded_user_input, indent=2).encode("utf-8")
 
     # Download buttons
     c1, c2, c3, c4 = st.columns(4)
@@ -313,6 +386,4 @@ if st.button("Submit & Analyze"):
             file_name="user_input.json",
             mime="application/json"
         )
-
-    # IMPORTANT: Webhook, Email routing, and AI risk generation UI are removed.
 

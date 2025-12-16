@@ -40,30 +40,40 @@ def regulatory_base_risk(regs):
     return 2
 
 def categorize_total_risk(total):
-    if total >= 3.5: return "High"
-    elif total >= 2.5: return "Medium"
-    else: return "Low"
+    if total >= 3.5:
+        return "High"
+    elif total >= 2.5:
+        return "Medium"
+    else:
+        return "Low"
 
 def decision_matrix(risk_level, criticality):
-    if risk_level == "Low": return "Approve"
-    if risk_level == "Medium" and criticality == "High": return "Approve with conditions"
-    if risk_level == "Medium": return "Approve"
-    if risk_level == "High" and criticality == "High": return "Escalate for detailed review"
-    if risk_level == "High": return "Reject or redesign"
+    if risk_level == "Low":
+        return "Approve"
+    if risk_level == "Medium" and criticality == "High":
+        return "Approve with conditions"
+    if risk_level == "Medium":
+        return "Approve"
+    if risk_level == "High" and criticality == "High":
+        return "Escalate for detailed review"
+    if risk_level == "High":
+        return "Reject or redesign"
     return "Review"
 
 def performance_metrics_risk(metrics):
-    if not metrics: return 4.5
+    if not metrics:
+        return 4.5
     std = {"Accuracy", "Precision", "Recall", "F1 Score"}
     only_accuracy = (metrics == ["Accuracy"])
     has_std = any(m in std for m in metrics)
-    if only_accuracy: return 3.5
-    if has_std: return 2.0
+    if only_accuracy:
+        return 3.5
+    if has_std:
+        return 2.0
     return 3.0
 
 # ---------- Abbreviation expansion (labels + values + free-text) ----------
 ABBREV_MAP_VALUES = {
-    # Common values appearing in outputs
     "NLP": "Natural Language Processing",
     "CSAT": "Customer Satisfaction",
     "RBAC": "Role-Based Access Control",
@@ -71,7 +81,6 @@ ABBREV_MAP_VALUES = {
 }
 
 ABBREV_MAP_LABELS = {
-    # Output label expansions (used in JSON & files)
     "Use Case Desc": "Use Case Description",
     "Deployment Envs": "Deployment Environments",
     "Regs": "Applicable Regulations",
@@ -80,7 +89,6 @@ ABBREV_MAP_LABELS = {
     "Cyber Measures": "Cybersecurity Measures",
 }
 
-# Free-text expansion patterns (applied inside Description/Business Objective, etc.)
 TEXT_ABBREV_PATTERNS = [
     (r"\bCSAT\b", "Customer Satisfaction"),
     (r"\bNLP\b", "Natural Language Processing"),
@@ -115,14 +123,10 @@ def expand_value(val):
     return val
 
 def titleize_key(k: str) -> str:
-    """Convert payload keys like 'use_case_desc' to 'Use Case Description' (with map corrections)."""
     pretty = k.replace("_", " ").strip().title()
-    # Align with known label expansions (e.g., Privacy By Design -> Privacy by Design)
-    pretty = expand_label(pretty)
-    return pretty
+    return expand_label(pretty)
 
 def expand_dict_keys_values(d: dict) -> dict:
-    """Return a copy with expanded keys (labels) and expanded values."""
     out = {}
     for k, v in d.items():
         key_expanded = titleize_key(k)
@@ -194,7 +198,6 @@ privacy_by_design = st.radio("Privacy by Design embedded?", ["Yes", "No"], horiz
 st.markdown('<div class="section-title">Section 7: Risk & Criticality Scoring</div>', unsafe_allow_html=True)
 st.markdown('<p class="small-note">Weights are 20% for Data, Model, Operational, Regulatory, Security. 1=low risk, 5=high risk.</p>', unsafe_allow_html=True)
 
-# Scores per dimension (computed but not displayed in the new outputs)
 data_risk_components = [
     5 if data_sensitivity == "Yes" else 2,
     4 if data_bias_checks == "No" else 2,
@@ -235,7 +238,7 @@ security_risk_components = [
 ]
 security_risk_score = round(sum(security_risk_components) / len(security_risk_components), 2)
 
-weights = { "Data": 0.20, "Model": 0.20, "Operational": 0.20, "Regulatory": 0.20, "Security": 0.20 }
+weights = {"Data": 0.20, "Model": 0.20, "Operational": 0.20, "Regulatory": 0.20, "Security": 0.20}
 total_weighted = round(
     data_risk_score * weights["Data"] +
     model_risk_score * weights["Model"] +
@@ -248,7 +251,6 @@ recommendation = decision_matrix(risk_level, criticality)
 
 # ---------- Submit & Results (expanded outputs + downloads; no webhook/email/AI calls) ----------
 if st.button("Submit & Analyze"):
-    # Build payload (unchanged internal keys)
     payload = {
         "use_case_name": use_case_name,
         "use_case_desc": use_case_desc,
@@ -272,7 +274,6 @@ if st.button("Submit & Analyze"):
         "access_controls": access_controls,
         "cyber_measures": cyber_measures,
         "privacy_by_design": privacy_by_design,
-        # Keep internal scores (not exported/shown)
         "scores": {
             "data_risk": data_risk_score,
             "model_risk": model_risk_score,
@@ -285,10 +286,9 @@ if st.button("Submit & Analyze"):
         }
     }
 
-    # Keep only raw user answers (drop scoring & risks)
     user_input_raw = {k: v for k, v in payload.items() if k not in {"scores", "identified_risks"}}
 
-    # Apply abbreviation expansions to free-text fields as well (for outputs only)
+    # Expand free-text inside outputs
     user_input_for_output = {}
     for k, v in user_input_raw.items():
         if isinstance(v, str):
@@ -298,7 +298,6 @@ if st.button("Submit & Analyze"):
         else:
             user_input_for_output[k] = v
 
-    # Expand keys and values for display/download (no short forms)
     expanded_user_input = expand_dict_keys_values(user_input_for_output)
 
     st.success("Submission captured. Download your responses below (DOCX / PDF / XLSX / JSON).")
@@ -333,19 +332,19 @@ if st.button("Submit & Analyze"):
 
         for k, v in data.items():
             val = ", ".join(v) if isinstance(v, list) else str(v)
-            # Use mini-HTML for bold in ReportLab Paragraph
             story.append(Paragraph(f"<b>{k}:</b> {val}", styles["BodyText"]))
             story.append(Spacer(1, 0.2 * cm))
 
         bio = BytesIO()
-            SimpleDocTemplate(
+        pdf = SimpleDocTemplate(
             bio,
             pagesize=A4,
             leftMargin=2 * cm,
             rightMargin=2 * cm,
             topMargin=2 * cm,
             bottomMargin=2 * cm
-        ).build(story)
+        )
+        pdf.build(story)
         return bio.getvalue()
 
     def build_xlsx(data: dict) -> bytes:
@@ -361,12 +360,12 @@ if st.button("Submit & Analyze"):
 
     # Build files from expanded output dict
     docx_bytes = build_docx(expanded_user_input)
-    pdf_bytes  = build_pdf(expanded_user_input)
+    pdf_bytes = build_pdf(expanded_user_input)
     xlsx_bytes = build_xlsx(expanded_user_input)
     json_bytes = json.dumps(expanded_user_input, indent=2).encode("utf-8")
 
     # Download buttons
-    c1, c2, c3, c4 = st.columns(4)
+    c1    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.download_button(
             "Download DOCX",

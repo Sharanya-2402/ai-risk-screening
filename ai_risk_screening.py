@@ -345,7 +345,7 @@ if st.button("Submit & Analyze"):
     def build_docx(data: dict) -> bytes:
         from docx import Document
         doc = Document()
-        doc.add_heading("AI Use Case Risk & Criticality – User Submission", level=1)
+        doc.add_heading("AI Use Case Risk & Criticality - User Submission", level=1)
         for k, v in data.items():
             p = doc.add_paragraph()
             p.add_run(f"{k}: ").bold = True
@@ -358,10 +358,10 @@ if st.button("Submit & Analyze"):
         from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
         from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.lib.units import cm
+        from report        from reportlab.lib.units import cm
         story = []
         styles = getSampleStyleSheet()
-        story.append(Paragraph("AI Use Case Risk & Criticality – User Submission", styles["Title"]))
+        story.append(Paragraph("AI Use Case Risk & Criticality - User Submission", styles["Title"]))
         story.append(Spacer(1, 0.3 * cm))
         for k, v in data.items():
             val = ", ".join(v) if isinstance(v, list) else str(v)
@@ -391,12 +391,12 @@ if st.button("Submit & Analyze"):
         return bio.getvalue()
 
     # Build files from expanded output dict
-    docx_bytes = build    docx_bytes = build_docx(expanded_user_input)
+    docx_bytes = build_docx(expanded_user_input)
     pdf_bytes = build_pdf(expanded_user_input)
     xlsx_bytes = build_xlsx(expanded_user_input)
     json_bytes = json.dumps(expanded_user_input, indent=2).encode("utf-8")
 
-    # Download buttons (ensure no typos or split strings)
+    # Download buttons
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.download_button(

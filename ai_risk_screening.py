@@ -3,6 +3,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import re
 
 # ---------- Page config & simple styling ----------
 st.set_page_config(page_title="AI Risk & Criticality Screening", layout="wide")
@@ -81,20 +82,19 @@ ABBREV_MAP_LABELS = {
 
 # Free-text expansion patterns (applied inside Description/Business Objective, etc.)
 TEXT_ABBREV_PATTERNS = [
-    ("\\bCSAT\\b", "Customer Satisfaction"),
-    ("\\bNLP\\b", "Natural Language Processing"),
-    ("\\bRBAC\\b", "Role-Based Access Control"),
-    ("\\bAPI\\b", "Application Programming Interface"),
-    ("\\bDLP\\b", "Data Loss Prevention"),
-    ("\\bDPIA\\b", "Data Protection Impact Assessment"),
-    ("\\bMFA\\b", "Multi-Factor Authentication"),
-    ("\\bIR\\b", "Incident Response"),
-    ("\\bEU AI Act\\b", "European Union Artificial Intelligence Act"),
-    ("\\bPII\\b", "Personally Identifiable Information"),
-    ("\\bPHI\\b", "Protected Health Information"),
+    (r"\bCSAT\b", "Customer Satisfaction"),
+    (r"\bNLP\b", "Natural Language Processing"),
+    (r"\bRBAC\b", "Role-Based Access Control"),
+    (r"\bAPI\b", "Application Programming Interface"),
+    (r"\bDLP\b", "Data Loss Prevention"),
+    (r"\bDPIA\b", "Data Protection Impact Assessment"),
+    (r"\bMFA\b", "Multi-Factor Authentication"),
+    (r"\bIR\b", "Incident Response"),
+    (r"\bEU AI Act\b", "European Union Artificial Intelligence Act"),
+    (r"\bPII\b", "Personally Identifiable Information"),
+    (r"\bPHI\b", "Protected Health Information"),
 ]
 
-import re
 def expand_text(s: str) -> str:
     if not isinstance(s, str):
         return s
@@ -108,7 +108,6 @@ def expand_label(label: str) -> str:
 
 def expand_value(val):
     if isinstance(val, str):
-        # First expand exact values, then free-text inside
         v = ABBREV_MAP_VALUES.get(val, val)
         return expand_text(v)
     if isinstance(val, list):
@@ -116,7 +115,7 @@ def expand_value(val):
     return val
 
 def titleize_key(k: str) -> str:
-    # Convert payload keys like "use_case_desc" to "Use Case Description"
+    """Convert payload keys like 'use_case_desc' to 'Use Case Description' (with map corrections)."""
     pretty = k.replace("_", " ").strip().title()
     # Align with known label expansions (e.g., Privacy By Design -> Privacy by Design)
     pretty = expand_label(pretty)
@@ -273,7 +272,7 @@ if st.button("Submit & Analyze"):
         "access_controls": access_controls,
         "cyber_measures": cyber_measures,
         "privacy_by_design": privacy_by_design,
-        # Keep internal scores (not exported/showed)
+        # Keep internal scores (not exported/shown)
         "scores": {
             "data_risk": data_risk_score,
             "model_risk": model_risk_score,
@@ -289,8 +288,7 @@ if st.button("Submit & Analyze"):
     # Keep only raw user answers (drop scoring & risks)
     user_input_raw = {k: v for k, v in payload.items() if k not in {"scores", "identified_risks"}}
 
-    # Apply abbreviation expansions to free-text fields as well
-    # (non-destructive: only for outputs)
+    # Apply abbreviation expansions to free-text fields as well (for outputs only)
     user_input_for_output = {}
     for k, v in user_input_raw.items():
         if isinstance(v, str):
@@ -327,16 +325,27 @@ if st.button("Submit & Analyze"):
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.lib.units import cm
+
         story = []
         styles = getSampleStyleSheet()
         story.append(Paragraph("AI Use Case Risk & Criticality – User Submission", styles["Title"]))
-        story.append(Spacer(1, 0.3*cm))
+        story.append(Spacer(1, 0.3 * cm))
+
         for k, v in data.items():
             val = ", ".join(v) if isinstance(v, list) else str(v)
-            story.append(Paragraph(f"<b>{k}:</b>            story.append(Paragraph(f"<b>{k}:</b> {val}", styles["BodyText"]))
-            story.append(Spacer(1, 0.2*cm))
+            # Use mini-HTML for bold in ReportLab Paragraph
+            story.append(Paragraph(f"<b>{k}:</b> {val}", styles["BodyText"]))
+            story.append(Spacer(1, 0.2 * cm))
+
         bio = BytesIO()
-        SimpleDocTemplate(bio, pagesize=A4, leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm).build(story)
+               SimpleDocTemplate(
+            bio,
+            pagesize=A4,
+            leftMargin=2 * cm,
+            rightMargin=2 * cm,
+            topMargin=2 * cm,
+            bottomMargin=2 * cm
+        ).build(story)
         return bio.getvalue()
 
     def build_xlsx(data: dict) -> bytes:

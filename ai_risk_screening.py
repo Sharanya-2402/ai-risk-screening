@@ -338,7 +338,7 @@ if st.button("Submit & Analyze"):
             story.append(Spacer(1, 0.2 * cm))
 
         bio = BytesIO()
-               SimpleDocTemplate(
+            SimpleDocTemplate(
             bio,
             pagesize=A4,
             leftMargin=2 * cm,

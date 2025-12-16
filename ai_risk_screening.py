@@ -322,7 +322,7 @@ if st.button("Submit & Analyze"):
         },
     }
 
-    # Prepare user input for output (no scores, no identified risks)
+    # Prepare user input for output (no scores, no identified_risks)
     user_input_raw = {k: v for k, v in payload.items() if k not in {"scores", "identified_risks"}}
 
     # Expand free-text and values for display/download
@@ -344,15 +344,12 @@ if st.button("Submit & Analyze"):
     # -------------------- File builders (DOCX, PDF, XLSX, JSON) --------------------
     def build_docx(data: dict) -> bytes:
         from docx import Document
-
         doc = Document()
         doc.add_heading("AI Use Case Risk & Criticality – User Submission", level=1)
-
         for k, v in data.items():
             p = doc.add_paragraph()
             p.add_run(f"{k}: ").bold = True
             p.add_run(", ".join(v) if isinstance(v, list) else str(v))
-
         bio = BytesIO()
         doc.save(bio)
         return bio.getvalue()
@@ -362,17 +359,14 @@ if st.button("Submit & Analyze"):
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.lib.units import cm
-
         story = []
         styles = getSampleStyleSheet()
         story.append(Paragraph("AI Use Case Risk & Criticality – User Submission", styles["Title"]))
         story.append(Spacer(1, 0.3 * cm))
-
         for k, v in data.items():
             val = ", ".join(v) if isinstance(v, list) else str(v)
             story.append(Paragraph(f"<b>{k}:</b> {val}", styles["BodyText"]))
             story.append(Spacer(1, 0.2 * cm))
-
         bio = BytesIO()
         pdf = SimpleDocTemplate(
             bio,
@@ -390,7 +384,6 @@ if st.button("Submit & Analyze"):
         for k, v in data.items():
             val = ", ".join(v) if isinstance(v, list) else v
             rows.append({"Field": k, "Value": val})
-
         df = pd.DataFrame(rows)
         bio = BytesIO()
         with pd.ExcelWriter(bio, engine="openpyxl") as writer:
@@ -398,38 +391,37 @@ if st.button("Submit & Analyze"):
         return bio.getvalue()
 
     # Build files from expanded output dict
-    docx_bytes = build_docx(expanded_user_input)
+    docx_bytes = build    docx_bytes = build_docx(expanded_user_input)
     pdf_bytes = build_pdf(expanded_user_input)
     xlsx_bytes = build_xlsx(expanded_user_input)
     json_bytes = json.dumps(expanded_user_input, indent=2).encode("utf-8")
 
-    # Download buttons
+    # Download buttons (ensure no typos or split strings)
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.download_button(
-            "Download DOCX",
+            label="Download DOCX",
             data=docx_bytes,
             file_name="ai_risk_user_input.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
     with c2:
         st.download_button(
-            "Download PDF",
+            label="Download PDF",
             data=pdf_bytes,
             file_name="ai_risk_user_input.pdf",
             mime="application/pdf",
         )
     with c3:
         st.download_button(
-            "Download            "Download XLSX",
+            label="Download XLSX",
             data=xlsx_bytes,
             file_name="ai_risk_user_input.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     with c4:
         st.download_button(
-            "Download JSON",
+            label="Download JSON",
             data=json_bytes,
             file_name="user_input.json",
             mime="application/json",
-
